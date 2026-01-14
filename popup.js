@@ -2,9 +2,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const list = document.getElementById('list');
     const exportBtn = document.getElementById('export');
     const clearBtn = document.getElementById('clear');
-    const toggleAllBtn = document.createElement('button');
     
-    toggleAllBtn.textContent = "Tout développer/réduire";
+    // Create "Expand All" button
+    const toggleAllBtn = document.createElement('button');
+    toggleAllBtn.textContent = "Tout développer";
     toggleAllBtn.id = "toggleAll";
     toggleAllBtn.style.cssText = `
         background: #8b5cf6;
@@ -21,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.querySelector('body').insertBefore(toggleAllBtn, exportBtn);
     
+    // Inject Styles
     const style = document.createElement('style');
     style.textContent = `
         body {
@@ -90,6 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
             align-items: center;
             cursor: pointer;
             padding: 8px 0;
+            user-select: none;
         }
         
         .formation-nom {
@@ -138,6 +141,8 @@ document.addEventListener('DOMContentLoaded', () => {
             justify-content: center;
             border-radius: 50%;
             transition: transform 0.2s;
+            margin-top: 0; 
+            padding: 0;
         }
         
         .fleche-btn:hover {
@@ -272,9 +277,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
+            // Sort by date (newest first)
             formations.sort((a, b) => new Date(b.timestamp || b.date) - new Date(a.timestamp || a.date));
             
-            list.innerHTML = formations.map((formation, index) => {
+            // Generate HTML without inline onclicks
+            list.innerHTML = formations.map((formation) => {
                 let tauxTexte = "N/A";
                 let tauxClasse = "taux-inconnu";
                 
@@ -362,8 +369,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 return `
-                    <div class="formation-item" data-index="${index}">
-                        <div class="formation-header" onclick="toggleDetails(${index})">
+                    <div class="formation-item">
+                        <div class="formation-header">
                             <div style="flex: 1;">
                                 <div class="formation-nom">${echapperHTML(formation.university)}</div>
                                 <div class="formation-diplome">${echapperHTML(formation.diploma || '')}</div>
@@ -371,44 +378,63 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                             <div style="display: flex; align-items: center; gap: 10px;">
                                 <span class="taux-badge ${tauxClasse}">${tauxTexte}</span>
-                                <button class="fleche-btn" id="fleche-${index}">▼</button>
+                                <button class="fleche-btn">▶</button>
                             </div>
                         </div>
-                        <div class="formation-details" id="details-${index}">
+                        <div class="formation-details">
                             ${statsHTML}
                             ${fraisHTML}
-                            <button class="supprimer-btn" onclick="supprimerFormation(${index}, event)">Supprimer</button>
+                            <button class="supprimer-btn" data-id="${formation.id}">Supprimer</button>
                         </div>
                     </div>
                 `;
             }).join('');
-            
-            window.toggleDetails = function(index) {
-                const details = document.getElementById(`details-${index}`);
-                const fleche = document.getElementById(`fleche-${index}`);
-                
-                if (details.classList.contains('details-visible')) {
+
+            // Attach Event Listeners (Fix for CSP issues)
+            attachEventListeners();
+        });
+    }
+
+    function attachEventListeners() {
+        const items = document.querySelectorAll('.formation-item');
+        
+        items.forEach(item => {
+            const header = item.querySelector('.formation-header');
+            const details = item.querySelector('.formation-details');
+            const fleche = item.querySelector('.fleche-btn');
+            const deleteBtn = item.querySelector('.supprimer-btn');
+
+            // Toggle Expand/Collapse
+            header.addEventListener('click', () => {
+                const isVisible = details.classList.contains('details-visible');
+                if (isVisible) {
                     details.classList.remove('details-visible');
                     fleche.textContent = "▶";
                 } else {
                     details.classList.add('details-visible');
                     fleche.textContent = "▼";
                 }
-            };
-            
-            window.supprimerFormation = function(index, event) {
-                event.stopPropagation();
-                if (confirm('Supprimer cette formation?')) {
-                    chrome.storage.local.get({ savedSchools: [] }, (result) => {
-                        const formations = result.savedSchools || [];
-                        if (index >= 0 && index < formations.length) {
-                            formations.splice(index, 1);
-                            chrome.storage.local.set({ savedSchools: formations }, chargerFormationsSauvegardees);
-                        }
-                    });
-                }
-            };
+            });
+
+            // Handle Delete
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent header click trigger
+                const id = parseInt(deleteBtn.getAttribute('data-id'));
+                supprimerFormation(id);
+            });
         });
+    }
+    
+    function supprimerFormation(id) {
+        if (confirm('Supprimer cette formation?')) {
+            chrome.storage.local.get({ savedSchools: [] }, (result) => {
+                const formations = result.savedSchools || [];
+                const newFormations = formations.filter(s => s.id !== id);
+                chrome.storage.local.set({ savedSchools: newFormations }, () => {
+                    // List will auto-reload due to onChanged listener
+                });
+            });
+        }
     }
     
     function formaterNombre(num) {
@@ -423,6 +449,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return div.innerHTML;
     }
     
+    // Toggle All Button Logic
     toggleAllBtn.addEventListener('click', () => {
         toutesFormationsDeveloppees = !toutesFormationsDeveloppees;
         
@@ -444,6 +471,7 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleAllBtn.textContent = toutesFormationsDeveloppees ? "Tout réduire" : "Tout développer";
     });
     
+    // Export Logic
     exportBtn.addEventListener('click', () => {
         chrome.storage.local.get({ savedSchools: [] }, (result) => {
             const formations = result.savedSchools || [];
@@ -464,7 +492,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ];
             
             const lignesCSV = [];
-            
             lignesCSV.push('\uFEFF' + enTetes.join(','));
             
             formations.forEach(formation => {
@@ -482,15 +509,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     formation.fraisScolarite?.etudiantsReguliers || 'N/A',
                     formation.fraisScolarite?.etudiantsBoursiers || 'N/A'
                 ];
-                
                 lignesCSV.push(ligne.join(','));
             });
             
             const csv = lignesCSV.join('\n');
-            
-            const blob = new Blob([csv], { 
-                type: 'text/csv;charset=utf-8' 
-            });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -504,15 +527,12 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function echapperCSV(str) {
         if (str === null || str === undefined) return '';
-        
         str = String(str).trim();
         str = str.replace(/[;,"]/g, ' ');
-        
         if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
             str = str.replace(/"/g, '""');
             return `"${str}"`;
         }
-        
         return str;
     }
     
